@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>鹈鹕骑自行车 · Pelican on a Bicycle (3D)</title>
+<meta name="description" content="一只鹈鹕在湖边环形赛道上骑自行车的实时 3D 场景。Three.js + WebGL + Web Audio。" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚲</text></svg>" />
+<style>
+  :root { --glass: rgba(255,255,255,0.72); --text:#2C2C2B; --muted:#7D7A75; --accent:#2783DE; --border:rgba(0,0,0,0.08); }
+  body.night { --glass: rgba(32,32,32,0.72); --text:#fff; --muted:rgba(255,255,255,0.65); --accent:#5E9FE8; --border:rgba(255,255,255,0.16); }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; overflow:hidden; background:#9fd3f5; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Roboto, sans-serif; color: var(--text); }
+  canvas { display:block; }
+  .panel { position:fixed; background:var(--glass); backdrop-filter: blur(14px) saturate(1.4); -webkit-backdrop-filter: blur(14px) saturate(1.4); border:1px solid var(--border); border-radius:16px; box-shadow: 0 8px 30px rgba(0,0,0,0.12); transition: background .6s, color .6s; }
+  #title { top:20px; left:20px; padding:16px 20px; max-width:340px; }
+  #title h1 { margin:0 0 4px; font-size:20px; letter-spacing:.2px; }
+  #title p { margin:0; font-size:13px; color:var(--muted); line-height:1.5; }
+  #hud { top:20px; right:20px; padding:14px 18px; text-align:right; min-width:170px; }
+  #hud .big { font-size:34px; font-weight:700; font-variant-numeric: tabular-nums; line-height:1; }
+  #hud .unit { font-size:12px; color:var(--muted); }
+  #hud .row { font-size:12px; color:var(--muted); margin-top:8px; font-variant-numeric: tabular-nums; }
+  #controls { bottom:20px; left:50%; transform:translateX(-50%); padding:12px 14px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:center; width:max-content; max-width:calc(100vw - 40px); }
+  button { font:inherit; font-size:13px; padding:8px 12px; border-radius:10px; border:1px solid var(--border); background:rgba(255,255,255,0.5); color:var(--text); cursor:pointer; transition: transform .1s, background .2s; white-space:nowrap; }
+  body.night button { background:rgba(255,255,255,0.08); }
+  button:hover { background:rgba(39,131,222,0.12); }
+  button:active { transform: scale(.96); }
+  button.on { background:var(--accent); color:#fff; border-color:transparent; }
+  label.speed { display:flex; align-items:center; gap:8px; font-size:13px; padding:0 6px; }
+  input[type=range] { accent-color: var(--accent); width:120px; }
+  #toast { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%) scale(.9); padding:12px 20px; font-size:16px; font-weight:600; opacity:0; pointer-events:none; transition: all .35s; border-radius:14px; background:var(--glass); backdrop-filter: blur(10px); }
+  #toast.show { opacity:1; transform:translate(-50%,-50%) scale(1); }
+  #keys { bottom:20px; right:20px; padding:10px 14px; font-size:11px; color:var(--muted); line-height:1.7; }
+  kbd { font-family: Menlo, Consolas, monospace; font-size:10px; padding:1px 5px; border-radius:4px; border:1px solid var(--border); background:rgba(127,127,127,0.1); }
+  #loader { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:linear-gradient(#bfe6ff,#fef6e4); z-index:10; transition: opacity .8s; font-size:15px; color:#2C2C2B; gap:12px; }
+  #loader .spin { font-size:48px; animation: ride 1.2s ease-in-out infinite; }
+  @keyframes ride { 0%,100% { transform: translateX(-30px) rotate(-4deg);} 50% { transform: translateX(30px) rotate(4deg);} }
+  @media (max-width: 720px) { #keys { display:none; } #title { max-width: calc(100vw - 220px); padding:12px 14px; } #title h1 { font-size:16px; } #title p { display:none; } #hud .big { font-size:26px; } }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="loader"><div class="spin">🚲</div><div>鹈鹕正在给轮胎打气…</div></div>
+
+<div id="title" class="panel">
+  <h1>🚲 鹈鹕骑自行车</h1>
+  <p>一只白鹈鹕绕着湖边环形公路骑车。拖动旋转视角、滚轮缩放；点击鹈鹕会让它的喉囊鼓起来。</p>
+</div>
+
+<div id="hud" class="panel">
+  <div><span class="big" id="spd">0</span> <span class="unit">km/h</span></div>
+  <div class="row">里程 <span id="odo">0.00</span> km · 圈数 <span id="laps">0</span></div>
+  <div class="row">踏频 <span id="cad">0</span> rpm</div>
+</div>
+
+<div id="controls" class="panel">
+  <label class="speed">🐢 <input id="speed" type="range" min="0" max="45" value="18" /> 🐇</label>
+  <button id="btnBell">🔔 按铃</button>
+  <button id="btnBoost">⚡ 冲刺</button>
+  <button id="btnCam">🎥 视角：追随</button>
+  <button id="btnNight">🌙 夜晚</button>
+  <button id="btnPause">⏸ 暂停</button>
+  <button id="btnShot">📸 截图</button>
+</div>
+
+<div id="keys" class="panel">
+  <kbd>Space</kbd> 按铃 · <kbd>B</kbd> 冲刺 · <kbd>C</kbd> 切换视角<br/>
+  <kbd>N</kbd> 昼夜 · <kbd>P</kbd> 暂停 · <kbd>↑</kbd><kbd>↓</kbd> 调速
+</div>
+<div id="toast"></div>
+
+<script type="module" src="./main.js"></script>
+</body>
+</html>
